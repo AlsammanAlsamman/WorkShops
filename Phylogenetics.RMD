@@ -45,7 +45,7 @@ currentDir<-getwd()
 if (!file.exists(file.path(currentDir,"Results"))) {
   dir.create(file.path(currentDir,"Results"))
 }
-# if not exist then create results sub folder for population structure
+# if not exist then create results sub folder for phylogenetics
 if (!file.exists(file.path(currentDir,"Results","Phylogenetics"))) {
     dir.create(file.path(currentDir,"Results","Phylogenetics"))
 }
