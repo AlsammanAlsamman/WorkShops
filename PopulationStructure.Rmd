@@ -1,0 +1,204 @@
+**DESCRIPTION:**
+ICARDA Workshop on Genomics
+**DATE:** 2023
+
+
+# Population structure
+
+Population structure is the genetic structure of a population. It is the result of the genetic drift and natural
+selection that occur in a population. Population structure can be measured using different methods, 
+such as principal component analysis (PCA) and admixture analysis.
+
+The population structure is very important tool to identify :
+-	**contributing populations:** Contributing populations are the populations that contribute to the genetic diversity of a population.
+-	**admixture:** Admixture is the process of mixing two or more populations.
+- **recent admixture:** Recent admixture is the process of mixing two or more populations that occurred recently.
+
+Please read "A tutorial on how not to over-interpret STRUCTURE and ADMIXTURE bar plots" by Daniel J. Lawson and Daniel Falush 
+at the following link: https://www.nature.com/articles/s41467-018-05257-7
+
+We will use LEA (Local Eigenvalue Adjustment) package to estimate the population structure of the barley dataset.
+The package can be installed from the following link: https://bioconductor.org/packages/release/bioc/html/LEA.html
+The package tutorial can be found at the following link: http://membres-timc.imag.fr/Olivier.Francois/LEA/tutorial.htm
+
+### Configure for analysis
+
+```{r, eval=FALSE}
+
+#Clear the workspace
+rm(list=ls())
+
+#Get the path sperator
+if (Sys.info()[1] == "Windows") {
+  path.sep <- "\\"
+} else {
+  path.sep <- "/"
+}
+
+#Loading libraries
+library(LEA)
+library(ggplot2)
+library(parallel)
+library(vcfR)
+
+#Get the current directory
+currentDir<-getwd()
+
+# if not exist then create results folder
+if (!file.exists(file.path(currentDir,"Results"))) {
+  dir.create(file.path(currentDir,"Results"))
+}
+# if not exist then create results sub folder for population structure
+if (!file.exists(file.path(currentDir,"Results","PopulationStructure"))) {
+  dir.create(file.path(currentDir,"Results","PopulationStructure"))
+}
+```
+
+### Loading the dataset
+```{r, eval=FALSE}
+
+DataFile<-paste(currentDir,"Data","Barley.vcf",sep=path.sep)
+resultFolder<-paste(currentDir,"Results","PopulationStructure",sep=path.sep)
+```
+
+### Population structure parameters
+```{r, eval=FALSE}
+maxK<- 12
+# maxK is the maximum number of populations to be estimated
+maxiter<- 10000
+# maxiter is the maximum number of iterations
+```
+
+### Read the VCF file
+```{r, eval=FALSE}
+# read vcf file
+vcf<-read.vcfR(DataFile)
+genonames<-colnames(vcf@gt)
+# remove the first column
+genonames<-genonames[-1] # nolint
+
+TaxaNames<-data.frame(Taxa=genonames)
+# save the TaxaNames
+write.table(TaxaNames,file=paste(resultFolder,"/","TaxaNames.txt",sep=""),
+            quote=FALSE,row.names=FALSE,col.names=FALSE,sep="\t")
+
+# convert vcf to geno
+GenoFile<-vcf2geno(DataFile,paste0(resultFolder,"/Genotypes.geno"))
+# save the IDs order
+
+write.table(genonames,file=paste(resultFolder,"/","IDs.txt",sep=""),
+            quote=FALSE,row.names=FALSE,col.names=FALSE,sep="\t")
+```
+
+### Estimate the population structure
+
+In this step, we will use LEA package to estimate the population structure of the barley dataset.
+The data analysis could take a long time depending on the number of individuals and the number of SNPs.
+We the analysis will use the maximum number of cores available in the computer to speed up the analysis.
+
+```{r, eval=FALSE}
+structure.iterations<-as.numeric(maxiter) # number of iterations
+maxK<-as.numeric(maxK)          # maximum number of clusters
+#detect number of cores
+ncores<-detectCores()   # number of cores to use for parallel processing
+
+# Do the analysis using LEA , The snfm folder will be created in Data folder not in Results folder
+project = snmf(GenoFile,
+              K = 1:maxK,
+              entropy = TRUE,iterations = structure.iterations,
+              repetitions = 10,CPU=ncores-3,
+              project = "new")
+```
+
+### Plot the cross entropy and best K
+
+The cross entropy is a measure of the difference between the estimated population structure and the true population structure.
+The cross entropy is used to determine the optimal number of populations to be estimated.
+
+```{r, eval=FALSE}
+plot(project, cex = 1.2, col = "lightblue", pch = 19)
+
+# plot cross-entropy criterion of all runs of the project
+pdf(paste(resultFolder,"/","cross-entropy.pdf",sep=""))
+plot(project, cex = 1.2, col = "lightblue", pch = 19)
+dev.off()
+
+
+# create folder for best ks
+dir.create(file.path(resultFolder,"/bestKs"),showWarnings = FALSE)
+
+# load project using LEA
+for (kn in 2:maxK) {
+    bestK = which.min(cross.entropy(project, K = kn))
+    # move the best K file 
+    snmfFolder<-paste(resultFolder,"/Genotypes.snmf",sep="")
+    # # read the best K file
+    StrutcMat<-read.table(paste(snmfFolder,"/K",kn,"/run",
+                                bestK,"/Genotypes","_r",bestK,".",kn,".Q",sep=""))
+    # # save the best K file to bestKs folder with run number as name
+    write.table(StrutcMat,file=paste(resultFolder,"/bestKs/","K",kn,".Q",sep=""),
+    quote=FALSE,row.names=FALSE,col.names=FALSE,sep="\t")
+}
+
+# open the cross entropy plot
+openPDFfile(paste(resultFolder,"/","cross-entropy.pdf",sep=""))
+
+```
+
+
+
+### Plot the population structure
+
+```{r, eval=FALSE}
+library(ggplot2)
+library(reshape2)
+library(dplyr)
+library(forcats)
+library(ggpubr)
+library(grid)
+
+# load plotLeaR function
+source(paste(currentDir,"functions","plotLeaR.R",sep=path.sep))
+
+# Load helpful functions
+source(paste(currentDir,"functions","helpfulFunctions.R",sep=path.sep))
+```
+
+parameters for plotLeaR function
+
+```{r, eval=FALSE}
+
+bestKnownK<-6
+# should be estimated from the cross entropy plot
+
+passportTable<-"BarleyPassport.tsv"
+# contains the passport data for the barley dataset such as country
+```
+
+```{r, eval=FALSE}
+# read the passport file
+passportFile<-paste(currentDir,"Data",passportTable,sep=path.sep)
+
+# plot the population structure
+resultFolder<-paste(currentDir,"Results","PopulationStructure",sep=path.sep)
+orderFile<-paste(resultFolder,path.sep,"IDs.txt",sep="")
+LEAoutFolder<-paste(currentDir,"Results","PopulationStructure","bestKs",sep=path.sep)
+
+plotHeight<-30
+plotWidth<-15
+
+plotLeaR(LEAoutFolder,resultFolder,passportFile,orderFile,bestKnownK,maxK, plotHeight, plotWidth, pathSeparator=path.sep, labelfontsize = 12)
+
+```
+
+Open the file "structurePlotGrandPlot.pdf" to see the population structure plot.
+
+```{r, eval=FALSE}
+openPDFfile(paste(resultFolder,path.sep,"structurePlotGrandPlot.pdf",sep=""))
+```
+
+Open The best K file to see the population structure plot for each K.
+
+```{r, eval=FALSE}
+openPDFfile(paste(resultFolder,path.sep,"structurePlotBestK.pdf",sep=""))
+```
