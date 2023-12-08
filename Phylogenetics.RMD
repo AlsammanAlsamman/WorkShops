@@ -1,0 +1,163 @@
+
+**FILENAME:** Phylogenetics.RMD
+
+**DESCRIPTION:**
+
+ICARDA Workshop on Genomics
+
+**PUBLIC FUNCTIONS:**
+
+**START DATE:** 2023
+
+## Phylogenetic analysis
+
+The Phylogenetic is very important to understand the genetic diversity of the population. 
+The phylogenetic tree is a tree showing the inferred evolutionary relationships among various biological species or other entities based upon similarities and differences in their physical or genetic characteristics. The taxa joined together in the tree are implied to have descended from a common ancestor. 
+Phylogenetic trees are central to the field of phylogenetics.
+
+We will use the SNPRelate package to construct the phylogenetic tree and the ape package to visualize the tree.
+
+
+### Configure for analysis
+
+```{r, eval=FALSE}
+
+#Clear the workspace
+rm(list=ls())
+
+#Get the path sperator
+if (Sys.info()[1] == "Windows") {
+  path.sep <- "\\"
+} else {
+  path.sep <- "/"
+}
+
+#Loading libraries
+library(SNPRelate)
+library(ggplot2)
+library(ape)
+
+
+#Get the current directory
+currentDir<-getwd()
+
+# if not exist then create results folder
+if (!file.exists(file.path(currentDir,"Results"))) {
+  dir.create(file.path(currentDir,"Results"))
+}
+# if not exist then create results sub folder for population structure
+if (!file.exists(file.path(currentDir,"Results","Phylogenetics"))) {
+    dir.create(file.path(currentDir,"Results","Phylogenetics"))
+}
+
+```
+
+### Load the data
+
+```{r, eval=FALSE}
+vcffile<-file.path(currentDir,"Data","Barley.vcf")
+outfilename<-"Barley"
+outputTitle<-"Barley Genotype Diversity"
+ResultsFolder<-file.path(currentDir,"Results","Phylogenetics")
+
+# load important functions
+source(file.path(currentDir,"functions","helpfulFunctions.R"))
+```
+
+### Parameters
+
+```{r, eval=FALSE}
+maf<-0.05
+missing.rate<-0.1
+```
+
+### Read the data
+
+```{r, eval=FALSE}
+# read vcf file and convert to gds
+gdsfilename <- paste(outfilename,".gds",sep="")
+# remove file if exists
+if (file.exists(gdsfilename)) {
+    file.remove(gdsfilename)
+}
+
+snpgdsVCF2GDS(vcffile, gdsfilename)
+snpgdsSummary(gdsfilename)
+genofile <- openfn.gds(gdsfilename)
+
+```
+
+### Calculate the distance matrix and phylogenetic tree
+
+```{r, eval=FALSE}
+#Calculate Distance matrix
+dissMatrix  <-  snpgdsDiss(genofile, maf=maf, missing.rate= missing.rate)
+
+# The parameters are
+# genofile: the genotype file
+# maf: the minor allele frequency threshold
+# missing.rate: the missing rate threshold
+
+# Hierarchical clustering
+snpHCluster <-  snpgdsHCluster(dissMatrix, sample.id=NULL, need.mat=TRUE, hang=0.25)
+
+# Phylogenetic tree
+cutTree = snpgdsCutTree(snpHCluster, z.threshold=15, outlier.n=5, n.perm = 5000, samp.group=NULL, 
+    col.outlier="red", col.list=NULL, pch.outlier=4, pch.list=NULL,label.H=FALSE, label.Z=TRUE, 
+    verbose=TRUE)
+# close genotype file
+closefn.gds(genofile)
+
+# These parameters are
+# z.threshold: the threshold of Z-score for outlier detection
+# outlier.n: the number of outliers to be detected
+# n.perm: the number of permutations for outlier detection
+# samp.group: the sample group for outlier detection
+# col.outlier: the color for outlier
+# col.list: the color for the rest of samples
+# pch.outlier: the plotting character for outlier
+# pch.list: the plotting character for the rest of samples
+# label.H: whether to label the height of the tree
+# label.Z: whether to label the Z-score of each sample
+# verbose: whether to print the progress
+```
+
+### Plot the tree
+
+```{r, eval=FALSE}
+pdf(paste(ResultsFolder,"/",outfilename,".pdf",sep=""), width=30, height=8)
+snpgdsDrawTree(
+    cutTree, 
+    main = "Phylogenetic tree",
+    y.label.kinship=T,
+    cex=1, 
+    font=1, 
+    cex.lab=0.5,
+    lwd=10,
+    leaflab="none",
+    cex.axis=2)
+dev.off()
+
+# open pdf file
+openPDFfile(paste(ResultsFolder,"/",outfilename,".pdf",sep=""))
+```
+We can also save the tree as a newick file and the samples as a text file.
+
+```{r, eval=FALSE}
+# save tree as newick file
+write.tree(as.phylo(as.hclust(cutTree$dendrogram)), file=paste(ResultsFolder,"/",outfilename,".newick",sep=""))
+names(cutTree)
+# samples 
+# save samples as text file
+write.table(cutTree$samples, file=paste(ResultsFolder,"/",outfilename,".samples.txt",sep=""), sep="\t", quote=F, row.names=F, col.names=F)
+# save samp.order
+write.table(cutTree$samp.order, file=paste(ResultsFolder,"/",outfilename,".samp.order.txt",sep=""), sep="\t", quote=F, row.names=F, col.names=F)
+# save samp.group
+write.table(cutTree$samp.group, file=paste(ResultsFolder,"/",outfilename,".samp.group.txt",sep=""), sep="\t", quote=F, row.names=F, col.names=F)
+
+# save the distance matrix
+dissMatrixTable<-as.data.frame(dissMatrix$diss)
+rownames(dissMatrixTable)<-dissMatrix$sample.id
+colnames(dissMatrixTable)<-dissMatrix$sample.id
+write.table(dissMatrixTable, file=paste(ResultsFolder,"/",outfilename,".dissMatrix.tsv",sep=""), sep="\t", quote=F, row.names=T, col.names=T)
+```
