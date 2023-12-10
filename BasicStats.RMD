@@ -7,19 +7,25 @@ ICARDA Workshop on Genomics
 
 ## Genetic diversity indices
 
+These genetic indices we will calculate are :
+- **Ho** (observed heterozygosity): The proportion of individuals in a population that are heterozygous at a particular genetic locus.
 
+- **Hs** (expected heterozygosity): The proportion of individuals in a population expected to be heterozygous at a particular genetic locus under the assumption of Hardy-Weinberg equilibrium.
 
-These genetic indices are :
-- **Ho** : observed heterozygosity
-- **Hs** : expected heterozygosity
-- **Ht** : total heterozygosity
-- **Dst** : genetic differentiation
-- **Htp** : expected heterozygosity within subpopulation
-- **Dstp** : genetic differentiation within subpopulation
-- **Fst** : genetic differentiation between subpopulation
-- **Fis** : inbreeding coefficient
-- **Dest** : genetic distance between subpopulation 
+- **Ht** (total heterozygosity): The overall level of heterozygosity in a population, including both observed and expected heterozygosity.
 
+- **Dst** (genetic differentiation): The measure of genetic divergence between populations. It takes into account both the differences in allele frequencies within populations and the differences in allele frequencies between populations.
+
+- **Htp** (expected heterozygosity within subpopulation): The expected heterozygosity within a subpopulation.
+
+- **Dstp** (genetic differentiation within subpopulation): The genetic differentiation within a subpopulation.
+
+- **Fst** (genetic differentiation between subpopulations): A measure of the degree of genetic differentiation between subpopulations. It compares the genetic variation within subpopulations to the total genetic variation in the entire population.
+
+- **Fis** (inbreeding coefficient): A measure of the departure from Hardy-Weinberg equilibrium within a subpopulation. It indicates the level of inbreeding within a population.
+
+- **Dest** (genetic distance between subpopulations): A measure of the genetic distance between subpopulations, indicating how genetically distinct they are from each other.
+- **PIC** (polymorphic information content): A measure of the informativeness of a genetic marker for a particular set of populations. It is calculated as 1 - (p^2 + q^2), where p and q are the frequencies of the two alleles at a particular locus.
 
 ### Configure for analysis
 
@@ -51,6 +57,10 @@ library(hierfstat)
 # library(devtools)
 # install_github("nikostourvas/PopGenUtils")
 #library("PopGenUtils")
+library(inline)
+library(SNPRelate)
+library(ggplot2)
+library(xlsx)
 
 #Get the current directory
 currentDir<-getwd()
@@ -76,6 +86,8 @@ ResultFolder<-file.path(currentDir,"Results","BasicStats")
 
 # load important functions
 source(file.path(currentDir,"functions","helpfulFunctions.R"))
+# load PIC function
+source(file.path(currentDir,"functions","PIC.R"))
 ```
 
 ### Parameters
@@ -178,7 +190,7 @@ for (metaCol in names(colStats))
     theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
     ggtitle(metaCol)+
     # no legend
-    guides(fill=FALSE) +
+    # guides(fill=FALSE) +
     # x title
     ylab("Values per loci")+
     # y title
@@ -276,4 +288,69 @@ p<-ggplot(MAFvalues, aes(x=Frequency)) +
 ggsave(paste0(ResultFolder,path.sep,"MAF.pdf"),p,width = 10, height = 10)
 # png
 ggsave(paste0(ResultFolder,path.sep,"MAF.png"),p,width = 10, height = 10)
+```
+
+
+### Calculate PIC
+
+Create a folder for PIC if not exists
+
+```{r, eval=FALSE}
+
+# create a folder for PIC if not exists
+if (!dir.exists(paste0(ResultFolder,path.sep,"PIC"))) {
+  dir.create(paste0(ResultFolder,path.sep,"PIC"))
+}
+
+ResultFolder<-file.path(currentDir,"Results","PIC")
+```
+
+Read the data  
+```{r, eval=FALSE}
+
+# read vcf file using SNPRelate
+snpgdsVCF2GDS(vcfFile, paste("Genotype",".gds",sep=""), method="biallelic.only", verbose=TRUE)
+
+# convert to genlight
+genofile <- openfn.gds(paste("Genotype",".gds",sep=""))
+# filter data to remove loci with missing data and MAF < 0.05
+# get genotype
+genotype<-read.gdsn(index.gdsn(genofile, "genotype"))
+# get marker names
+markerNames<-read.gdsn(index.gdsn(genofile, "snp.rs.id"))
+# get sample names
+sampleNames<-read.gdsn(index.gdsn(genofile, "sample.id"))
+
+# close the gds file
+closefn.gds(genofile)
+# add row and column names
+rownames(genotype)<-as.character(sampleNames)
+colnames(genotype)<-as.character(markerNames)
+```
+
+Calculate PIC
+
+```{r, eval=FALSE}
+# calculate the frequency of each allele in each marker
+alleleFreq<-apply(genotype,2,function(x) table(x)/length(x))
+# remove sites with only one allele (monomorphic sites)
+alleleFreq<-alleleFreq[lapply(alleleFreq,length)>1]
+# calculate PIC
+PIC<-lapply(alleleFreq,PICvec)
+# convert to data frame
+PIC<-data.frame(do.call(rbind,PIC))
+
+colnames(PIC)<-c("PIC")
+PIC$Marker<-rownames(PIC)
+# plot PIC as histogram
+p<-ggplot(PIC,aes(x=PIC))+geom_histogram(binwidth = 0.01)+theme_bw()+labs(x="PIC",y="Frequency")
+ggsave(paste(ResultFolder,path.sep,"PIC_histogram.png",sep=""),p,width=10,height=5)
+# as boxplot
+p<-ggplot(PIC,aes(x="PIC",y=PIC))+geom_boxplot()+theme_bw()+labs(x="PIC",y="Frequency")
+ggsave(paste(ResultFolder,path.sep,"PIC_boxplot.png",sep=""),p,width=10,height=5)
+# as table
+PIC<-PIC[,c("Marker","PIC")]
+write.table(PIC,file=paste(ResultFolder,path.sep,"PIC.tsv",sep=""),sep="\t",quote=FALSE,row.names = FALSE)
+# as xlsx
+write.xlsx(PIC,file=paste(ResultFolder,path.sep,"PIC.xlsx",sep=""),row.names = FALSE)
 ```
