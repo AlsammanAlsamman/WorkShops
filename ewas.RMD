@@ -1,0 +1,302 @@
+
+**FILENAME:** EWAS.RMD
+
+**DESCRIPTION:**
+
+ICARDA Workshop on Genomics
+
+
+
+# EWAS (Environment-Wide Association Study)
+
+EWAS is the environment-wide association study. It is a method to identify the association between the environment and the genetic variation.
+In this analysis, we will use the EWAS method to identify the association between the environment and the genetic variation in the barley dataset.
+
+The data analysis of the ewas is sperated into two parts:
+1- downloading the climate data and preparing the data for the analysis
+2- running the analysis and visualizing the results
+
+### Configure for analysis
+
+```{r, eval=FALSE}
+#Clear the workspace
+rm(list=ls())
+# Where is the analysis folder
+analysisFolder<-"/home/samman/Documents/MyGitHub/WorkShops"
+setwd(analysisFolder)
+```
+
+
+```{r, eval=FALSE}
+
+#Clear the workspace
+
+#Get the path sperator
+if (Sys.info()[1] == "Windows") {
+  path.sep <- "\\"
+} else {
+  path.sep <- "/"
+}
+
+#Loading libraries
+#install.packages(c("raster", "sp", "rasterVis", "rworldmap"))
+# install.packages("geodata")
+library(raster)
+library(sp)
+library(rasterVis)
+library(rworldmap)
+#install.packages("rworldmap")
+library(geodata)
+#install.packages("geodata")
+# library
+library(LEA)
+library(ggplot2)
+library(parallel)
+library(inline)
+# for brewer.pal.info
+library(RColorBrewer)
+library(vcfR)
+library(dplyr)
+library(R.utils) # for the gunzip function
+# for data imputation
+library(mice)
+# install.packages("mice")
+#Get the current directory
+currentDir<-getwd()
+
+# if not exist then create results folder
+if (!file.exists(file.path(currentDir,"Results"))) {
+  dir.create(file.path(currentDir,"Results"))
+}
+# if not exist then create results sub folder for EWAS
+if (!file.exists(file.path(currentDir,"Results","EWAS"))) {
+    dir.create(file.path(currentDir,"Results","EWAS"))
+}
+# create a temp folder
+if (!file.exists(file.path(currentDir,"temp"))) {
+    dir.create(file.path(currentDir,"temp"))
+}
+
+```
+
+
+
+### Load the data
+
+```{r, eval=FALSE}
+vcffile<-file.path(currentDir,"Data","Barley.vcf")
+outfilename<-"Barley"
+outputTitle<-"Barley Genotype ewas"
+# Table contains the logitude and latitude of the barley lines
+longlotFile<-file.path(currentDir,"Data","BarleyLocations.tsv")
+# Results folder
+ResultsFolder<-file.path(currentDir,"Results","EWAS")
+# load important functions
+source(file.path(currentDir,"functions","helpfulFunctions.R"))
+
+# load the ewas functions
+source(file.path(currentDir,"functions","ewasFunctions.R"))
+source(file.path(currentDir,"functions","getChrInfo.r"))
+source(file.path(currentDir,"functions","getColors.r"))
+source(file.path(currentDir,"functions","getMarkersInfo.r"))
+source(file.path(currentDir,"functions","plotmanahhten.r"))
+```
+
+### Macthing the GPS data with the VCF file
+
+Some times we could have a lot of samples we could not have the GPs info for all them. 
+
+
+```{r, eval=FALSE}
+# read the GPS data
+gpsData<-read.table(longlotFile,sep="\t",header=TRUE, row.names = 1)
+colnames(gpsData)<-c("longitude","latitude")
+# convert to numeric
+gpsData$longitude<-as.numeric(gpsData$longitude)
+gpsData$latitude<-as.numeric(gpsData$latitude)
+# remove the lines with NA values
+gpsData<-gpsData[!is.na(gpsData$longitude) & !is.na(gpsData$latitude),]
+
+# now we have samples with GPS
+# read the vcf file
+vcf<-read.vcfR(vcffile)
+# get the sample order
+sampleOrder<-colnames(vcf@gt)
+# get the samples with GPS
+sampleOrderGPS<-intersect(sampleOrder,rownames(gpsData))
+# subset the samples using vcfR package
+vcf@gt<-vcf@gt[,sampleOrderGPS]
+# write the vcf file in the temp folder
+write.vcf(vcf, file = paste0(currentDir,"/temp/",outfilename,".vcf.gz"))
+# extract the gz file
+
+gunzip(paste0(currentDir,"/temp/",outfilename,".vcf.gz"), overwrite = TRUE)
+
+# change the vcffile to the new file
+vcffile<-paste0(currentDir,"/temp/",outfilename,".vcf")
+
+```
+
+
+## Downloading the climate data and preparing the data for the analysis
+
+Read the climate data from the file and prepare the data for the analysis
+
+```{r, eval=FALSE}
+# Read the climate data from the file
+climateData<-read.csv(longlotFile,sep="\t",header=TRUE)
+colnames(climateData)<-c("taxa","longitude","latitude")
+# convert longitude and latitude to numeric
+climateData$longitude<-as.numeric(climateData$longitude)
+climateData$latitude<-as.numeric(climateData$latitude)
+# remove the lines with NA values
+print("Removing the lines with NA values")
+climateData<-climateData[!is.na(climateData$longitude) & !is.na(climateData$latitude),]
+```
+
+Create a spatial points data frame from the climate data
+
+```{r, eval=FALSE}
+# create a SpatialPointsDataFrame
+worldclim_data <- getData('worldclim', var='bio', res=10)
+
+climateData[,c("longitude","latitude")]
+# Extract bioenvironmental data for the locations of the barley lines
+bio_data <- raster::extract(worldclim_data, climateData[,c("longitude","latitude")])
+colnames(bio_data) <- paste0("BIO", 1:19)
+rownames(bio_data) <- climateData$taxa
+# write the data to a file
+write.table(bio_data,file=file.path(ResultsFolder,"bio_data.txt"),sep="\t",quote=FALSE)
+```
+
+
+
+
+The results contains 19 bio variables for each barley line in this table.
+
+| Bio variable | Description |
+| --- | --- |
+| BIO1 | Annual Mean Temperature |
+| BIO2 | Mean Diurnal Range (Mean of monthly (max temp - min temp)) |
+| BIO3 | Isothermality (BIO2/BIO7) (* 100) |
+| BIO4 | Temperature Seasonality (standard deviation *100) |
+| BIO5 | Max Temperature of Warmest Month |
+| BIO6 | Min Temperature of Coldest Month |
+| BIO7 | Temperature Annual Range (BIO5-BIO6) |
+| BIO8 | Mean Temperature of Wettest Quarter |
+| BIO9 | Mean Temperature of Driest Quarter |
+| BIO10 | Mean Temperature of Warmest Quarter |
+| BIO11 | Mean Temperature of Coldest Quarter |
+| BIO12 | Annual Precipitation |
+| BIO13 | Precipitation of Wettest Month |
+| BIO14 | Precipitation of Driest Month |
+| BIO15 | Precipitation Seasonality (Coefficient of Variation) |
+| BIO16 | Precipitation of Wettest Quarter |
+| BIO17 | Precipitation of Driest Quarter |
+| BIO18 | Precipitation of Warmest Quarter |
+| BIO19 | Precipitation of Coldest Quarter |
+
+
+
+## Running the analysis and visualizing the results
+
+We will use LEA package.
+
+### imputation of the missing climate data
+
+```{r, eval=FALSE}
+# read the bio_data.txt file from the results folder
+climateData<-read.table(paste(ResultsFolder,"bio_data.txt",sep=path.sep),sep="\t",header=TRUE)
+# impuatation of the missing data using mice package
+miceData<-mice(climateData[,2:ncol(climateData)],m=5,maxit=50,meth='pmm',seed=500)
+# convert the mice object to a data frame
+climateData<-complete(miceData,1)
+```
+
+
+### Running the analysis
+
+
+```{r, eval=FALSE}
+
+# convert temp vcf to geno
+GenoFile<-vcf2geno(vcffile,paste0(vcffile,".geno"))
+
+# snp file information
+snpinfo<-read.table(paste0(vcffile,".vcfsnp"))
+colnames(snpinfo)<-c("chr","pos","id","ref","alt","qual","filter","info","format")
+
+# get samples order from a vcf file
+# read the vcf file
+vcf<-read.vcfR(vcffile)
+# get the sample order
+sampleOrder<-colnames(vcf@gt)
+locn<-as.integer(nrow(vcf@gt))
+indvn<-as.integer(ncol(vcf@gt))
+
+# get the climate data for the samples shared
+climateData<-climateData[sampleOrder,]
+
+# read the geno file and transpose it
+print("Geno data loading")
+genoData<-readGeno(paste0(vcffile,".geno"),indvn,locn)
+
+# fill the missing data with the major allele
+print("filling missing data")
+genoData<-fillMissing(genoData)
+# transpose the matrix
+print("transposing the matrix")
+#genoData<-t(genoData)
+
+# take the fist climate variable
+print("running the analysis")
+bioClimateParamaters<-colnames(climateData)
+# loop over the climate variables and run the analysis
+for(i in 1:length(bioClimateParamaters)) {
+    print(bioClimateParamaters[i])
+
+    # take the fist climate variable
+    thisClimateParamater<-bioClimateParamaters[i]
+    X<-climateData[,i]
+    X<-as.matrix(X)
+    Y<-genoData
+    mod.lfmm2 <- lfmm2(input = Y, env = X, K = 2)
+    # lfmm2.test (object, input, env, full, genomic.control, linear, family)
+    pv <- lfmm2.test(object = mod.lfmm2,
+                     input = Y,
+                     env = X,
+                     full = TRUE)
+    pv <- data.frame(pv$pvalues,  pv$fscores, pv$adj.r.squared)
+    colnames(pv) <- c("pvalues", "fscores", "adj.r.squared")
+    pv<-cbind(pv, snpinfo)
+    # write the results to a file
+    write.table(pv,file = paste0(ResultsFolder,"/","lfmm2_",bioClimateParamaters[i],".txt"),sep = "\t",quote = FALSE,row.names = FALSE)
+}
+```
+
+### Visualizing the results
+
+```{r, eval=FALSE}
+
+
+# list the results files
+ewasResults<-list.files(ResultsFolder,pattern = "lfmm2_")
+
+
+for(i in 1:length(ewasResults)) {
+    print(ewasResults[i])
+    # read the output of the LEA analysis
+    ewasLea<-read.csv(paste0(ResultsFolder,"/",ewasResults[i]),header=TRUE,sep="\t")
+    head(ewasLea)
+    # change the colnames
+    colnames(ewasLea)<-c("pvalue","fscore", "adj.r.squared", "chr","ps","id","ref","alt","qual","filter","info","format")
+    # create an rs using chr and ps
+    ewasLea$rs<-paste(ewasLea$chr,ewasLea$ps,sep="_")
+    # calculate the therehold
+    threshold <- quantile(ewasLea$pvalue, 0.01)
+    p<-plotmanahhten(ewasLea,calculateThreshold=T,thresholdValue = 0.001)
+    p
+    ggplot2::ggsave(paste(ResultsFolder,"/",gsub(".txt","",ewasResults[i]),".png",sep=""), width=15, height=5)
+}
+```
+
