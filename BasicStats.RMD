@@ -90,11 +90,6 @@ source(file.path(currentDir,"functions","helpfulFunctions.R"))
 source(file.path(currentDir,"functions","PIC.R"))
 ```
 
-### Parameters
-
-```{r, eval=FALSE}
-
-```
 
 ### read the data
 
